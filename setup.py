@@ -7,7 +7,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='micro-blue',
-    version='0.2.1',
+    version='0.2.4',
     description=(
         'micro-blue is an extension for Raspberry Pi that collects a lot of sensor drivers.'
     ),
