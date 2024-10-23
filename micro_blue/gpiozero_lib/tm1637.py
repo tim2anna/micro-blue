@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 from time import time, sleep, localtime
+from threading import Lock
+from gpiozero.threads import GPIOThread
 from RPi import GPIO
 
 GPIO.setmode(GPIO.BCM)
@@ -51,8 +53,7 @@ tm.scroll('micro-blue-room')
 time.sleep(1)
 tm.temperature(24)
 time.sleep(1)
-while True:
-    tm.clock()
+tm.clock()
 """
 
 
@@ -68,6 +69,9 @@ class TM1637(object):
         # 引脚初始化
         GPIO.setup(self.clk_pin, GPIO.OUT)
         GPIO.setup(self.dio_pin, GPIO.OUT)
+        # 线程
+        self._display_thread = None
+        self._display_lock = Lock()
 
     def br(self):
         """ 多条命令封装实现换行效果 """
@@ -176,15 +180,43 @@ class TM1637(object):
 
     def clock(self):
         """ 显示时间 """
-        t = localtime()
-        sleep(1 - time() % 1)
-        d0 = str(t.tm_hour // 10)
-        d1 = str(t.tm_hour % 10)
-        d2 = str(t.tm_min // 10)
-        d3 = str(t.tm_min % 10)
-        self.show(f'{d0}{d1}{d2}{d3}', colon=True)
-        sleep(0.5)
-        self.show(f'{d0}{d1}{d2}{d3}', colon=False)
+        while True:
+            t = localtime()
+            sleep(1 - time() % 1)
+            d0 = str(t.tm_hour // 10)
+            d1 = str(t.tm_hour % 10)
+            d2 = str(t.tm_min // 10)
+            d3 = str(t.tm_min % 10)
+
+            self.show(f'{d0}{d1}{d2}{d3}', colon=True)
+            if self._display_thread.stopping.wait(0.5):
+                pass
+            self.show(f'{d0}{d1}{d2}{d3}', colon=False)
+            if self._display_thread.stopping.wait(0.5):
+                pass
+
+    def clear(self):
+        if getattr(self, '_display_thread', None):
+            self._display_thread.stop()
+        self._display_thread = None
+
+    def countdown(self, seconds, background=True):
+        """ 倒计时 """
+        self.clear()
+        self._display_thread = GPIOThread(self._countdown, (seconds,))
+        self._display_thread.start()
+        if not background:
+            self._display_thread.join()
+            self._display_thread = None
+
+    def _countdown(self, seconds):
+        for i in range(seconds, 0, -1):
+            self.number(i)
+            if self._display_thread.stopping.wait(1):
+                pass
+        # 倒计时结束显示0，并清理线程
+        self.number(0)
+        self._display_thread = None
 
     def temperature(self, num):
         """ 显示温度，呈现效果为：37*C
